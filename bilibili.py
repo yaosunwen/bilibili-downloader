@@ -15,43 +15,60 @@ if os.path.exists(ffmpeg_path):
     os.environ['IMAGEIO_FFMPEG_EXE'] = ffmpeg_path
 import moviepy
 
-app = typer.Typer(no_args_is_help=True, help='bilibili视频下载工具')
+app = typer.Typer(no_args_is_help=True, help='bilibili下载工具')
 
-# bilibili_agent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36'
-bilibili_agent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'
-# bilibili_agent = 'Mozilla/5.0 (iPhone14,3; U; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/10.0 Mobile/19A346 Safari/602.1'
-# bilibili_agent = 'Mozilla/5.0 (Windows Phone 10.0; Android 6.0.1; Microsoft; RM-1152) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Mobile Safari/537.36 Edge/15.15254'
+windows_agent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36'
+android_agent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'
+iphone_agent = 'Mozilla/5.0 (iPhone14,3; U; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/10.0 Mobile/19A346 Safari/602.1'
 
 class BilibiliVideoHtml:
-    def __init__(self, url):
+    def __init__(self, url, title=None, video_url=None, audio_url=None):
         self.url = url
-        self.play_information = None
+        self.title = title
+        self.video_url = video_url
+        self.audio_url = audio_url
+        self.loaded = False
     
     def load(self):
-        if self.play_information is not None:
+        if self.loaded:
             return
+        
+        self.loaded = True
         
         headers = {
             'referer': 'https://www.bilibili.com',
-            'user-agent': bilibili_agent
+            'user-agent': windows_agent
         }
         html = requests.get(self.url, headers=headers).text
-        play_information_match = re.search('<script>window\.__INITIAL_STATE__=(.*?);\(function\(\).*</script>', html)
-        if not play_information_match:
-            raise Exception('Could not find play information, it should be assigned to window.__INITIAL_STATE__')
-        
-        # print(play_information_match.group(1))
-        self.play_information = json.loads(play_information_match.group(1))
 
+        initial_state_match = re.search('<script>window\.__INITIAL_STATE__=(.*?);\(function\(\).*</script>', html)
+        if not initial_state_match:
+            raise Exception('Could not find initial state, it should be assigned to window.__INITIAL_STATE__')
+        # print(initial_state_match.group(1))
+        initial_state = json.loads(initial_state_match.group(1))
+        self.video_page_list = initial_state["videoData"]["pages"]
+
+        play_information_match = re.search('<script>window\.__playinfo__=(.*?)</script>', html)
+        if not play_information_match:
+            raise Exception('Could not find play information, it should be assigned to window.__playinfo__')
+        # print(play_information_match.group(1))
+        play_information = json.loads(play_information_match.group(1))
+
+        self.video_url = play_information["data"]["dash"]["video"][0]["base_url"]
+        self.audio_url = play_information["data"]["dash"]["audio"][0]["base_url"]
 
 class BilibiliVideoPage(BilibiliVideoHtml):
     def __init__(self, url, title):
-        super().__init__(url)
-        self.title = title
+        super().__init__(url, title=title)
     
     def get_video_url(self):
         self.load()
-        return self.play_information["video"]["playUrlInfo"][0]['url']
+        return self.video_url
+    
+    def get_audio_url(self):
+        self.load()
+        return self.audio_url
+    
     def get_video_title(self):
         return self.title
 
@@ -67,18 +84,18 @@ class BilibiliVideoListPage(BilibiliVideoHtml):
 
     def get_page_list(self):
         self.load()
-        items = self.play_information["video"]["viewInfo"]["pages"]
+        items = self.video_page_list
         return [BilibiliVideoPage('https://www.bilibili.com/video/' + self.bvid + '?p=' + str(item['page']), item['part'])
                 for item in items]
 
 
-class BilibiliVideoDownloader:
-    def __init__(self, video_url, output_path):
-        self.video_url = video_url
+class BilibiliMediaDownloader:
+    def __init__(self, media_url, output_path):
+        self.media_url = media_url
         self.output_path = output_path
     
     def download(self):
-        print('download', self.video_url, 'to', self.output_path)
+        print('download', self.media_url, 'to', self.output_path)
 
         if os.path.exists(self.output_path):
             print(f'{self.output_path} exists, skipping to download')
@@ -94,9 +111,9 @@ class BilibiliVideoDownloader:
         
         headers = {
             'referer': 'https://www.bilibili.com/',
-            'user-agent': bilibili_agent
+            'user-agent': windows_agent
         }
-        response = requests.get(self.video_url, stream=True, headers=headers)
+        response = requests.get(self.media_url, stream=True, headers=headers)
         content_length = int(response.headers.get('content-length',0))
         with open(temp_path, mode='wb') as file, tqdm(
                 desc=basename,
@@ -113,33 +130,64 @@ class BilibiliVideoDownloader:
 
 
 class BilibiliVideoConverter:
-    def __init__(self, video_path, audio_output_dir=None) -> None:
+    def __init__(self, video_path, output_dir=None) -> None:
         self.video_path = video_path
-        self.audio_output_dir = audio_output_dir
-        if self.audio_output_dir is None:
-            self.audio_output_dir = os.path.dirname(self.video_path)
+        self.output_dir = output_dir
+        if self.output_dir is None:
+            self.output_dir = os.path.dirname(self.video_path)
     
     def convert_to_mp3(self):
         video_base_name = os.path.basename(self.video_path)
-        audio_base_name = os.path.splitext(video_base_name)[0] + '.mp3'
-        audio_temp_name = os.path.splitext(video_base_name)[0] + '.tmp.mp3'
+        mp3_base_name = os.path.splitext(video_base_name)[0] + '.mp3'
+        mp3_temp_name = os.path.splitext(video_base_name)[0] + '.tmp.mp3'
 
-        mp3_path = os.path.join(self.audio_output_dir, audio_base_name)
+        mp3_path = os.path.join(self.output_dir, mp3_base_name)
         print('convert', self.video_path, 'to', mp3_path)
 
         if os.path.exists(mp3_path):
             print(f'{mp3_path} exists, skipping to convert')
             return
-        if not os.path.exists(self.audio_output_dir):
-            os.makedirs(self.audio_output_dir)
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
 
-        temp_path = os.path.join(self.audio_output_dir, audio_temp_name)
+        temp_path = os.path.join(self.output_dir, mp3_temp_name)
         if os.path.exists(temp_path):
             os.remove(temp_path)
     
         moviepy.VideoFileClip(self.video_path).audio.write_audiofile(temp_path)
 
         os.rename(temp_path, mp3_path)
+
+
+class BilibiliAudioConverter:
+    def __init__(self, audio_path, output_dir=None) -> None:
+        self.audio_path = audio_path
+        self.output_dir = output_dir
+        if self.output_dir is None:
+            self.output_dir = os.path.dirname(self.audio_path)
+    
+    def convert_to_mp3(self):
+        audio_base_name = os.path.basename(self.audio_path)
+        mp3_base_name = os.path.splitext(audio_base_name)[0] + '.mp3'
+        mp3_temp_name = os.path.splitext(audio_base_name)[0] + '.tmp.mp3'
+
+        mp3_path = os.path.join(self.output_dir, mp3_base_name)
+        print('convert', self.audio_path, 'to', mp3_path)
+
+        if os.path.exists(mp3_path):
+            print(f'{mp3_path} exists, skipping to convert')
+            return
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+
+        temp_path = os.path.join(self.output_dir, mp3_temp_name)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+    
+        moviepy.AudioFileClip(self.audio_path).write_audiofile(temp_path)
+
+        os.rename(temp_path, mp3_path)
+
 
 @app.command()
 def main(
@@ -154,9 +202,8 @@ def main(
             print(f'{video_output_path} exists, skipping to download')
             continue
         try:
-            video_url = video_page.get_video_url()
-            BilibiliVideoDownloader(video_url, video_output_path).download()
-            BilibiliVideoConverter(video_output_path, audio_output_dir).convert_to_mp3()
+            BilibiliMediaDownloader(video_page.get_audio_url(), video_output_path).download()
+            BilibiliAudioConverter(video_output_path, audio_output_dir).convert_to_mp3()
         except:
             import traceback
             traceback.print_exc()
