@@ -1,13 +1,13 @@
-#%%
-import requests
+import os
 import json
 import re
-import time
+import traceback
+
+import requests
 
 import typer
 from typing_extensions import Annotated
 
-import os
 from tqdm import tqdm
 
 ffmpeg_path = os.path.join(os.path.dirname(__file__), 'ffmpeg')
@@ -15,11 +15,14 @@ if os.path.exists(ffmpeg_path):
     os.environ['IMAGEIO_FFMPEG_EXE'] = ffmpeg_path
 import moviepy
 
-app = typer.Typer(no_args_is_help=True, help='bilibili下载工具')
 
-windows_agent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.105 Safari/537.36'
-android_agent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'
-iphone_agent = 'Mozilla/5.0 (iPhone14,3; U; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/10.0 Mobile/19A346 Safari/602.1'
+app = typer.Typer(no_args_is_help=True, help='download bilibili video and convert to mp3')
+
+
+windows_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246'
+# android_agent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'
+# iphone_agent = 'Mozilla/5.0 (iPhone14,3; U; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/10.0 Mobile/19A346 Safari/602.1'
+
 
 class BilibiliVideoHtml:
     def __init__(self, url, title=None, video_url=None, audio_url=None):
@@ -56,6 +59,7 @@ class BilibiliVideoHtml:
 
         self.video_url = play_information["data"]["dash"]["video"][0]["base_url"]
         self.audio_url = play_information["data"]["dash"]["audio"][0]["base_url"]
+
 
 class BilibiliVideoPage(BilibiliVideoHtml):
     def __init__(self, url, title):
@@ -145,7 +149,7 @@ class BilibiliVideoConverter:
         print('convert', self.video_path, 'to', mp3_path)
 
         if os.path.exists(mp3_path):
-            print(f'{mp3_path} exists, skipping to convert')
+            print(f'{mp3_path} exists')
             return
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
@@ -175,7 +179,7 @@ class BilibiliAudioConverter:
         print('convert', self.audio_path, 'to', mp3_path)
 
         if os.path.exists(mp3_path):
-            print(f'{mp3_path} exists, skipping to convert')
+            print(f'{mp3_path} exists')
             return
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
@@ -199,15 +203,18 @@ def main(
     for video_page in video_page_list.get_page_list():
         video_output_path = os.path.join(video_output_dir, video_page.get_video_title() + '.mp4')
         if os.path.exists(video_output_path):
-            print(f'{video_output_path} exists, skipping to download')
-            continue
+            print(f'{video_output_path} exists')
+        else:
+            try:
+                BilibiliMediaDownloader(video_page.get_audio_url(), video_output_path).download()
+            except:
+                traceback.print_exc()
+        
         try:
-            BilibiliMediaDownloader(video_page.get_audio_url(), video_output_path).download()
             BilibiliAudioConverter(video_output_path, audio_output_dir).convert_to_mp3()
         except:
-            import traceback
             traceback.print_exc()
-            continue
-# %%
+
+
 if __name__ == '__main__':
     app()
