@@ -10,6 +10,7 @@ from typing_extensions import Annotated
 
 from tqdm import tqdm
 
+
 ffmpeg_path = os.path.join(os.path.dirname(__file__), 'ffmpeg')
 if os.path.exists(ffmpeg_path):
     os.environ['IMAGEIO_FFMPEG_EXE'] = ffmpeg_path
@@ -158,7 +159,8 @@ class BilibiliVideoConverter:
         if os.path.exists(temp_path):
             os.remove(temp_path)
     
-        moviepy.VideoFileClip(self.video_path).audio.write_audiofile(temp_path)
+        with moviepy.VideoFileClip(self.video_path) as c:
+            c.audio.write_audiofile(temp_path)
 
         os.rename(temp_path, mp3_path)
 
@@ -188,7 +190,8 @@ class BilibiliAudioConverter:
         if os.path.exists(temp_path):
             os.remove(temp_path)
     
-        moviepy.AudioFileClip(self.audio_path).write_audiofile(temp_path)
+        with moviepy.AudioFileClip(self.audio_path) as c:
+            c.write_audiofile(temp_path)
 
         os.rename(temp_path, mp3_path)
 
