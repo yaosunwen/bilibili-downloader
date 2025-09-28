@@ -173,7 +173,7 @@ class BilibiliAudioConverter:
         if self.output_dir is None:
             self.output_dir = os.path.dirname(self.audio_path)
 
-    def convert_to_mp3(self, bitrate=None):
+    def convert_to_mp3(self, bitrate=None, offset_start=None, offset_end=None):
         audio_base_name = os.path.basename(self.audio_path)
         mp3_base_name = os.path.splitext(audio_base_name)[0] + '.mp3'
         mp3_temp_name = os.path.splitext(audio_base_name)[0] + '.tmp.mp3'
@@ -192,7 +192,13 @@ class BilibiliAudioConverter:
             os.remove(temp_path)
 
         with AudioFileClip(self.audio_path) as c:
-            c.write_audiofile(temp_path, bitrate=bitrate)
+            if offset_start is None and offset_end is None:
+                c.write_audiofile(temp_path, bitrate=bitrate)
+            else:
+                offset_start = 0 if offset_start is None else offset_start
+                offset_end = 0 if offset_end is None else offset_end
+                c.subclip(c.start + offset_start, c.end - offset_end) \
+                    .write_audiofile(temp_path, bitrate=bitrate)
 
         os.rename(temp_path, mp3_path)
 
@@ -203,6 +209,8 @@ def main(
         video_output_dir: Annotated[str, typer.Option()] = '.',
         audio_output_dir: Annotated[str, typer.Option()] = None,
         bitrate: Annotated[str, typer.Option()] = None,
+        offset_start: Annotated[int, typer.Option()] = None,
+        offset_end: Annotated[int, typer.Option()] = None,
 ):
     video_page_list = BilibiliVideoListPage(url)
     for video_page in video_page_list.get_page_list():
@@ -218,7 +226,8 @@ def main(
                 traceback.print_exc()
 
         try:
-            BilibiliAudioConverter(video_output_path, audio_output_dir).convert_to_mp3(bitrate=bitrate)
+            BilibiliAudioConverter(video_output_path, audio_output_dir) \
+                .convert_to_mp3(bitrate=bitrate, offset_start=offset_start, offset_end=offset_end)
         except KeyboardInterrupt:
             raise
         except:
