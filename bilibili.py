@@ -109,7 +109,7 @@ class BilibiliMediaDownloader:
 
         dirname = os.path.dirname(self.output_path)
         basename = os.path.basename(self.output_path)
-        temp_path = os.path.join(dirname, '__temp__' + basename)
+        temp_path = os.path.join(dirname, basename + '.download')
         if os.path.exists(temp_path):
             os.remove(temp_path)
         if not os.path.exists(dirname):
@@ -173,7 +173,7 @@ class BilibiliAudioConverter:
         if self.output_dir is None:
             self.output_dir = os.path.dirname(self.audio_path)
 
-    def convert_to_mp3(self):
+    def convert_to_mp3(self, bitrate=None):
         audio_base_name = os.path.basename(self.audio_path)
         mp3_base_name = os.path.splitext(audio_base_name)[0] + '.mp3'
         mp3_temp_name = os.path.splitext(audio_base_name)[0] + '.tmp.mp3'
@@ -192,7 +192,7 @@ class BilibiliAudioConverter:
             os.remove(temp_path)
 
         with AudioFileClip(self.audio_path) as c:
-            c.write_audiofile(temp_path)
+            c.write_audiofile(temp_path, bitrate=bitrate)
 
         os.rename(temp_path, mp3_path)
 
@@ -201,7 +201,8 @@ class BilibiliAudioConverter:
 def main(
         url: Annotated[str, typer.Option(prompt=True, help="bilibili url, as https://www.bilibili.com/video/{bvid}")],
         video_output_dir: Annotated[str, typer.Option()] = '.',
-        audio_output_dir: Annotated[str, typer.Option()] = None
+        audio_output_dir: Annotated[str, typer.Option()] = None,
+        bitrate: Annotated[str, typer.Option()] = None,
 ):
     video_page_list = BilibiliVideoListPage(url)
     for video_page in video_page_list.get_page_list():
@@ -211,11 +212,15 @@ def main(
         else:
             try:
                 BilibiliMediaDownloader(video_page.get_audio_url(), video_output_path).download()
+            except KeyboardInterrupt:
+                raise
             except:
                 traceback.print_exc()
 
         try:
-            BilibiliAudioConverter(video_output_path, audio_output_dir).convert_to_mp3()
+            BilibiliAudioConverter(video_output_path, audio_output_dir).convert_to_mp3(bitrate=bitrate)
+        except KeyboardInterrupt:
+            raise
         except:
             traceback.print_exc()
 
